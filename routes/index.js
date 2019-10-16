@@ -1,6 +1,7 @@
 var express = require('express');
 var router = express.Router();
 const { ensureAuthenticated } = require('../config/auth');
+const verify = require('./verifyToken');
 
 /* GET home page. */
 router.get('/', function(req, res, next) {
@@ -8,11 +9,8 @@ router.get('/', function(req, res, next) {
 });
 
 // Dashboard
-router.get('/me', ensureAuthenticated, (req, res) =>
-  res.render('me', {
-    user: req.user,
-    email: req.email
-  })
-);
+router.get('/me', verify, ensureAuthenticated, (req, res) => {
+  res.send(req.user);
+});
 
 module.exports = router;

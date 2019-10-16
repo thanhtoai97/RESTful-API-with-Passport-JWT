@@ -2,6 +2,8 @@ var express = require('express');
 var router = express.Router();
 const bcrypt = require('bcryptjs');
 const passport = require('passport');
+const jwt = require('jsonwebtoken');
+const { registerValidation } = require('../validation');
 
 /* GET users listing. */
 router.get('/', function(req, res, next) {
@@ -18,83 +20,56 @@ router.get('/login', (req, res) => res.send('Login'));
 router.get('/register', (req, res) => res.send('Register'));
 
 // Register handle
-router.post('/register', (req, res) => {
-  const { name, email, password, password1 } = req.body;
-  let errors = [];
+router.post('/register', async (req, res) => {
+  /*
+  // Lets validate the data before we a user
+  const { error } = registerValidation(req.body);
+  if (error) {
+    return res.status(400).send(error.details[0].message);
+  }
+  */
 
-  // Check
-  if (!name || !email || !password || !password1) {
-    errors.push({ msg: 'fill out' });
+  // checking if the user is already in the database
+  const emailExits = await User.findOne({ email: req.body.email });
+  if (emailExits) {
+    return res.status(400).send('email already exits');
   }
-  if (password != password1) {
-    errors.push({ msg: 'password do not match' });
-  }
-  if (password.length < 6) {
-    errors.push({ msg: 'password should be length 6' });
-  }
-  if (errors.length > 0) {
-    res.render('register', {
-      errors,
-      name,
-      email,
-      password,
-      password1
-    });
-  } else {
-    User.findOne({ email: email }).then(user => {
-      if (user) {
-        errors.push({ msg: 'Email already exists' });
-        res.render('register', {
-          errors,
-          name,
-          email,
-          password,
-          password1
-        });
-      } else {
-        const newUser = new User({
-          name,
-          email,
-          password
-        });
-        // Hash password
-        bcrypt.genSalt(10, (err, salt) => {
-          bcrypt.hash(newUser.password, salt, (err, hash) => {
-            if (err) throw err;
-            // Set password to hash
-            newUser.password = hash;
-            // Save user
-            newUser
-              .save()
-              .then(user => {
-                req.flash(
-                  'success_msg',
-                  'You are now registered and can log in'
-                );
-                res.redirect('/users/login');
-              })
-              .catch(err => console.log(err));
-          });
-        });
-      }
-    });
+  // hash password
+  const salt = await bcrypt.genSalt(10);
+  const hashPassword = await bcrypt.hash(req.body.password, salt);
+
+  const user = new User({
+    name: req.body.name,
+    email: req.body.email,
+    password: hashPassword
+  });
+  try {
+    const saveUser = await user.save();
+    res.send({ user: user._id });
+  } catch (err) {
+    res.status(400).send(err);
   }
 });
 
 // Login
-router.post('/login', (req, res, next) => {
+router.post('/login', async (req, res, next) => {
+  const user = await User.findOne({ email: req.body.email });
+  if (!user) {
+    return res.status(400).send('email is not found');
+  }
+  const validPass = await bcrypt.compare(req.body.password, user.password);
+  if (!validPass) {
+    return res.status(400).send('invalid password');
+  }
+  // create and assign a token
+  const token = jwt.sign({ _id: user._id }, process.env.TOKEN_SECRET);
+  res.header('auth-token', token).send(token);
+
   passport.authenticate('local', {
     successRedirect: '/me',
     failureRedirect: '/users/login',
     failureFlash: true
   })(req, res, next);
-});
-
-// Logout
-router.get('/logout', (req, res) => {
-  req.logout();
-  req.flash('success_msg', 'You are logged out');
-  res.redirect('/users/login');
 });
 
 module.exports = router;
